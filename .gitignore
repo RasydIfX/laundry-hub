@@ -36,6 +36,17 @@ yarn-error.log*
 # vercel
 .vercel
 
+# ide & agents
+.agents
+.claude
+.windsurf
+
+# sqlite
+*.db
+*.db-journal
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma

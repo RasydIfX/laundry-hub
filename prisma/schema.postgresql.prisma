@@ -1,0 +1,257 @@
+// Production PostgreSQL Prisma Schema for Laundry Business Web Application
+// Fully compatible with the codebase (Float for numbers, String for status/roles)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. USERS: Pengguna aplikasi dengan RBAC (customer, admin, kasir, kurir)
+model User {
+  id            Int       @id @default(autoincrement())
+  name          String
+  phone         String    @unique
+  email         String?   @unique
+  password_hash String
+  role          String    @default("customer") // "customer" | "admin" | "kasir" | "kurir"
+  is_active     Boolean   @default(true)
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  addresses     Address[]
+  orders        Order[]
+  deliveries    Delivery[]       @relation("CourierDeliveries")
+  status_logs   OrderStatusLog[] @relation("ChangedByUser")
+  reviews       Review[]
+  notifications Notification[]
+
+  @@index([phone])
+  @@map("users")
+}
+
+// 2. ADDRESSES: Daftar alamat pengiriman / penjemputan pelanggan
+model Address {
+  id           Int        @id @default(autoincrement())
+  user_id      Int
+  label        String     // Misal: "Rumah", "Kantor", "Kost"
+  full_address String     @db.Text
+  latitude     Float?
+  longitude    Float?
+  is_default   Boolean    @default(false)
+  created_at   DateTime   @default(now())
+
+  user         User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  deliveries   Delivery[]
+
+  @@index([user_id])
+  @@map("addresses")
+}
+
+// 3. OUTLETS: Cabang / tempat pemrosesan laundry
+model Outlet {
+  id         Int      @id @default(autoincrement())
+  name       String
+  address    String   @db.Text
+  phone      String
+  open_hours String   // Misal: "07:00 - 21:00 WIB"
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  orders     Order[]
+
+  @@map("outlets")
+}
+
+// 4. SERVICE_CATEGORIES: Kategori Layanan (Kiloan, Satuan, Express, Dry Clean)
+model ServiceCategory {
+  id          Int       @id @default(autoincrement())
+  name        String    // "Kiloan", "Satuan", "Express", "Dry Clean"
+  description String?   @db.Text
+  icon        String?
+
+  services    Service[]
+
+  @@map("service_categories")
+}
+
+// 5. SERVICES: Daftar jenis layanan dan harga per unit
+model Service {
+  id                 Int             @id @default(autoincrement())
+  category_id        Int
+  name               String          // Misal: "Cuci + Setrika Reguler", "Bed Cover Sedang"
+  unit               String          // "kg" | "pcs"
+  price              Float           // Harga per unit saat ini
+  est_duration_hours Int             // Estimasi pengerjaan dalam jam
+  is_active          Boolean         @default(true)
+  created_at         DateTime        @default(now())
+
+  category           ServiceCategory @relation(fields: [category_id], references: [id], onDelete: Restrict)
+  order_items        OrderItem[]
+
+  @@index([category_id])
+  @@map("services")
+}
+
+// 6. PROMOS: Kode voucher & diskon
+model Promo {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique
+  discount_type  String    // "percent" | "fixed"
+  discount_value Float     // 10 (jika 10%) atau 10000 (jika Rp 10.000)
+  min_order      Float     @default(0)
+  start_date     DateTime
+  end_date       DateTime
+  quota          Int       @default(100)
+  used_count     Int       @default(0)
+  is_active      Boolean   @default(true)
+  created_at     DateTime  @default(now())
+
+  orders         Order[]
+
+  @@map("promos")
+}
+
+// 7. ORDERS: Transaksi pesanan laundry
+model Order {
+  id               Int              @id @default(autoincrement())
+  order_no         String           @unique
+  customer_id      Int
+  outlet_id        Int
+  promo_id         Int?
+  order_source     String           @default("online") // "online" | "walk_in"
+  fulfillment_type String           @default("drop_off") // "drop_off" | "pickup_delivery"
+  status           String           @default("pending")
+  subtotal         Float
+  discount_amount  Float            @default(0)
+  delivery_fee     Float            @default(0)
+  total            Float
+  notes            String?          @db.Text
+  created_at       DateTime         @default(now())
+  updated_at       DateTime         @updatedAt
+
+  customer         User             @relation(fields: [customer_id], references: [id])
+  outlet           Outlet           @relation(fields: [outlet_id], references: [id])
+  promo            Promo?           @relation(fields: [promo_id], references: [id])
+  items            OrderItem[]
+  payments         Payment[]
+  deliveries       Delivery[]
+  status_logs      OrderStatusLog[]
+  review           Review?
+  notifications    Notification[]
+
+  @@index([customer_id, status, created_at])
+  @@index([outlet_id])
+  @@index([status])
+  @@map("orders")
+}
+
+// 8. ORDER_ITEMS: Detail barang/layanan dalam pesanan
+model OrderItem {
+  id         Int      @id @default(autoincrement())
+  order_id   Int
+  service_id Int
+  quantity   Float
+  unit_price Float
+  subtotal   Float
+  note       String?  @db.Text
+
+  order      Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  service    Service  @relation(fields: [service_id], references: [id])
+
+  @@index([order_id])
+  @@index([service_id])
+  @@map("order_items")
+}
+
+// 9. PAYMENTS: Pembayaran pesanan
+model Payment {
+  id          Int       @id @default(autoincrement())
+  order_id    Int
+  method      String    // "transfer" | "qris" | "ewallet" | "cash"
+  amount      Float
+  status      String    @default("pending") // "pending" | "paid" | "failed" | "refunded"
+  proof_url   String?   @db.Text
+  gateway_ref String?
+  paid_at     DateTime?
+  created_at  DateTime  @default(now())
+
+  order       Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@map("payments")
+}
+
+// 10. DELIVERIES: Penjemputan dan pengantaran oleh kurir
+model Delivery {
+  id           Int       @id @default(autoincrement())
+  order_id     Int
+  courier_id   Int?
+  address_id   Int
+  type         String    // "pickup" | "delivery"
+  scheduled_at DateTime
+  status       String    @default("scheduled") // "scheduled" | "on_the_way" | "done" | "failed"
+  created_at   DateTime  @default(now())
+
+  order        Order     @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  courier      User?     @relation("CourierDeliveries", fields: [courier_id], references: [id])
+  address      Address   @relation(fields: [address_id], references: [id])
+
+  @@index([order_id])
+  @@index([courier_id])
+  @@map("deliveries")
+}
+
+// 11. ORDER_STATUS_LOGS: Audit trail riwayat status pesanan
+model OrderStatusLog {
+  id         Int      @id @default(autoincrement())
+  order_id   Int
+  status     String
+  changed_by Int
+  note       String?  @db.Text
+  created_at DateTime @default(now())
+
+  order      Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  user       User     @relation("ChangedByUser", fields: [changed_by], references: [id])
+
+  @@index([order_id])
+  @@map("order_status_logs")
+}
+
+// 12. REVIEWS: Ulasan dan rating dari pelanggan setelah selesai
+model Review {
+  id          Int      @id @default(autoincrement())
+  order_id    Int      @unique
+  customer_id Int
+  rating      Int
+  comment     String?  @db.Text
+  created_at  DateTime @default(now())
+
+  order       Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  customer    User     @relation(fields: [customer_id], references: [id])
+
+  @@index([customer_id])
+  @@map("reviews")
+}
+
+// 13. NOTIFICATIONS: Log notifikasi WhatsApp dan Email ke pelanggan
+model Notification {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  order_id   Int?
+  channel    String    // "whatsapp" | "email"
+  message    String    @db.Text
+  status     String    @default("queued") // "queued" | "sent" | "failed"
+  sent_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  order      Order?    @relation(fields: [order_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([order_id])
+  @@map("notifications")
+}

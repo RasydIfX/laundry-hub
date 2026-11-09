@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: laundryhub-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: laundry_user
+      POSTGRES_PASSWORD: laundry_password123
+      POSTGRES_DB: laundry_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
