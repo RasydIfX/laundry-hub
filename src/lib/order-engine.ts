@@ -227,7 +227,7 @@ export async function createOrder(params: CreateOrderParams) {
   // 6. Trigger Asynchronous Notification
   try {
     const servicesSummary = order.items.map((i) => `${i.service.name} (${i.quantity} ${i.service.unit})`).join(", ");
-    const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}?order=${order.order_no}`;
+    const trackingUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}?order=${order.order_no}`;
 
     const message = formatOrderMessage("order_created", {
       customerName: order.customer.name,
@@ -296,7 +296,7 @@ export async function transitionOrderStatus(params: {
 
   // Trigger Notification to Customer
   try {
-    const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}?order=${order.order_no}`;
+    const trackingUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}?order=${order.order_no}`;
     const statusLabel = STATUS_LABELS[newStatus] || newStatus;
 
     let event = "status_changed";
