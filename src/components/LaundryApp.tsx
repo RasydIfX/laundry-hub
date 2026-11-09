@@ -2225,13 +2225,16 @@ export default function LaundryApp() {
                 className="space-y-3 text-xs"
               >
                 <div>
-                  <label className="text-[11px] text-[#64748b] block mb-1">Nomor WhatsApp atau Email:</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] text-[#64748b]">ID Pengguna / No. WhatsApp / Email:</label>
+                    <span className="text-[10px] text-[#94a3b8] font-mono">Staff: admin / kasir / kurir</span>
+                  </div>
                   <input
                     type="text"
                     required
                     value={authIdentifier}
                     onChange={(e) => setAuthIdentifier(e.target.value)}
-                    placeholder="081234567890"
+                    placeholder="admin / kasir / kurir / 081234567890"
                     className="w-full p-2 rounded-lg bg-white border border-[#cbd5e1] font-mono"
                   />
                 </div>

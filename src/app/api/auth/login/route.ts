@@ -15,20 +15,27 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanIdentifier = identifier.trim();
+    const lower = cleanIdentifier.toLowerCase();
 
-    // Find by phone or email
+    // Find by phone, email, or ID alias (admin, kasir, kurir, etc.)
     const user = await prisma.user.findFirst({
       where: {
         OR: [
           { phone: cleanIdentifier },
-          { email: cleanIdentifier.toLowerCase() },
+          { email: lower },
+          { email: `${lower}@laundryhub.com` },
+          { email: { startsWith: `${lower}@` } },
+          ...(lower === "admin" ? [{ role: "admin" }] : []),
+          ...(lower === "kasir" ? [{ role: "kasir" }] : []),
+          ...(lower === "kurir" ? [{ role: "kurir" }] : []),
         ],
       },
+      orderBy: { id: "asc" },
     });
 
     if (!user) {
       return NextResponse.json(
-        { success: false, error: "Nomor HP atau password salah." },
+        { success: false, error: "ID / Nomor HP atau password salah." },
         { status: 401 }
       );
     }
