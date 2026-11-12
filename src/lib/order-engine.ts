@@ -291,6 +291,36 @@ export async function transitionOrderStatus(params: {
       },
     });
 
+    // Otomatis buat tugas delivery (antar kembali ke pelanggan) jika status = "ready" & fulfillment = "pickup_delivery"
+    if (newStatus === "ready" && order.fulfillment_type === "pickup_delivery") {
+      const existingDelivery = await tx.delivery.findFirst({
+        where: { order_id: orderId, type: "delivery" },
+      });
+
+      if (!existingDelivery) {
+        // Ambil alamat dari tugas pickup sebelumnya atau default alamat pelanggan
+        const prevPickup = await tx.delivery.findFirst({
+          where: { order_id: orderId, type: "pickup" },
+        });
+        const addressId =
+          prevPickup?.address_id ||
+          (await tx.address.findFirst({ where: { user_id: order.customer_id } }))?.id;
+
+        if (addressId) {
+          await tx.delivery.create({
+            data: {
+              order_id: orderId,
+              address_id: addressId,
+              type: "delivery",
+              scheduled_at: new Date(Date.now() + 1800000), // Siap diantar dalam 30 menit
+              status: "scheduled",
+              courier_id: prevPickup?.courier_id || null, // Hubungkan ke kurir yang sama jika sudah ada
+            },
+          });
+        }
+      }
+    }
+
     return res;
   });
 

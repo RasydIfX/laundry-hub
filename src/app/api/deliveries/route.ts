@@ -13,9 +13,12 @@ export async function GET(req: NextRequest) {
 
     const where: Record<string, unknown> = {};
 
-    // Kurir only sees their own assigned tasks
+    // Kurir melihat tugas miliknya dan tugas terbuka (belum ada kurir)
     if (user!.role === "kurir") {
-      where.courier_id = user!.id;
+      where.OR = [
+        { courier_id: user!.id },
+        { courier_id: null },
+      ];
     }
 
     if (status) where.status = status;

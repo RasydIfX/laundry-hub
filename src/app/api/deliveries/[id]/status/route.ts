@@ -33,17 +33,34 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "Tugas delivery tidak ditemukan." }, { status: 404 });
     }
 
-    // Check courier authorization
-    if (user!.role === "kurir" && delivery.courier_id !== user!.id) {
+    // Check courier authorization (kurir hanya ditolak jika tugas sudah diambil kurir lain)
+    if (user!.role === "kurir" && delivery.courier_id && delivery.courier_id !== user!.id) {
       return NextResponse.json(
-        { success: false, error: "Anda hanya dapat memperbarui tugas yang ditugaskan kepada Anda." },
+        { success: false, error: "Tugas ini telah diambil oleh kurir lain." },
         { status: 403 }
       );
     }
 
+    // Jika kurir melakukan aksi klaim saja
+    if (status === "claim") {
+      const claimed = await prisma.delivery.update({
+        where: { id: deliveryId },
+        data: { courier_id: user!.id },
+        include: { order: true },
+      });
+      return NextResponse.json({
+        success: true,
+        message: "Tugas berhasil Anda ambil.",
+        data: claimed,
+      });
+    }
+
     const updated = await prisma.delivery.update({
       where: { id: deliveryId },
-      data: { status },
+      data: {
+        status,
+        ...(delivery.courier_id === null && user!.role === "kurir" ? { courier_id: user!.id } : {}),
+      },
       include: { order: true },
     });
 

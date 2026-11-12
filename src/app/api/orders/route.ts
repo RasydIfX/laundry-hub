@@ -180,13 +180,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let finalAddressId = address_id ? Number(address_id) : undefined;
+    if (!finalAddressId && fulfillment_type === "pickup_delivery") {
+      if (body.guest_address) {
+        const newAddr = await prisma.address.create({
+          data: {
+            user_id: customerId,
+            label: "Alamat Jemput",
+            full_address: String(body.guest_address).trim(),
+            is_default: true,
+          },
+        });
+        finalAddressId = newAddr.id;
+      } else {
+        const defaultAddr = await prisma.address.findFirst({
+          where: { user_id: customerId },
+          orderBy: { is_default: "desc" },
+        });
+        if (defaultAddr) {
+          finalAddressId = defaultAddr.id;
+        } else {
+          const fallbackAddr = await prisma.address.create({
+            data: {
+              user_id: customerId,
+              label: "Alamat Jemput Pelanggan",
+              full_address: "Jl. Teuku Umar, Kedaton, Bandar Lampung",
+              is_default: true,
+            },
+          });
+          finalAddressId = fallbackAddr.id;
+        }
+      }
+    }
+
     const order = await createOrder({
       customer_id: customerId,
       outlet_id: Number(outlet_id),
       promo_code,
       order_source,
       fulfillment_type,
-      address_id: address_id ? Number(address_id) : undefined,
+      address_id: finalAddressId,
       notes,
       items: items.map((i: { service_id: number; quantity: number; note?: string }) => ({
         service_id: Number(i.service_id),

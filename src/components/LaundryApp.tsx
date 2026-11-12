@@ -120,6 +120,8 @@ interface OrderDetail {
 interface DeliveryTask {
   id: number;
   order_id: number;
+  courier_id?: number | null;
+  courier?: { id: number; name: string; phone: string } | null;
   type: string;
   status: string;
   scheduled_at: string;
@@ -144,6 +146,18 @@ const ORDER_STEPS = [
   { id: "delivering", label: "Diantar" },
   { id: "completed", label: "Selesai" },
 ];
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Menunggu Penjemputan",
+  picked_up: "Dijemput Kurir",
+  received: "Diterima Workshop",
+  washing: "Sedang Dicuci",
+  ironing: "Sedang Disetrika",
+  ready: "Selesai & Siap",
+  delivering: "Sedang Diantar",
+  completed: "Selesai",
+  cancelled: "Dibatalkan",
+};
 
 export default function LaundryApp() {
   const { user, token, addresses, login, register, logout } = useAuth();
@@ -671,11 +685,70 @@ export default function LaundryApp() {
       if (data.success) {
         alert(`✓ Status tugas pengantaran berhasil diubah ke: ${newStatus}`);
         loadCourierTasks();
+        loadKasirData();
+        if (activeOrderNo) fetchTrackedOrder(activeOrderNo);
       } else {
         alert(`Gagal: ${data.error}`);
       }
     } catch {
       alert("Koneksi gagal.");
+    }
+  };
+
+  // Kasir / Admin Update Status Pesanan
+  const handleUpdateOrderStatus = async (orderId: number, newStatus: string, note?: string) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          status: newStatus,
+          note: note || `Status diperbarui menjadi ${newStatus}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        loadKasirData();
+        if (isAdmin) loadAdminData();
+        if (activeOrderNo) fetchTrackedOrder(activeOrderNo);
+      } else {
+        alert(`Gagal mengubah status: ${data.error || "Terjadi kesalahan"}`);
+      }
+    } catch {
+      alert("Koneksi gagal saat memperbarui status pesanan.");
+    }
+  };
+
+  // Kasir Terima Pembayaran Tunai
+  const handleCashPayment = async (orderId: number, amount: number) => {
+    if (!confirm(`Konfirmasi penerimaan pembayaran tunai sebesar Rp ${amount.toLocaleString("id-ID")}?`)) return;
+    try {
+      const res = await fetch("/api/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          order_id: orderId,
+          method: "cash",
+          amount: amount,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("✓ Pembayaran tunai lunas berhasil dicatat!");
+        loadKasirData();
+        if (isAdmin) loadAdminData();
+        if (activeOrderNo) fetchTrackedOrder(activeOrderNo);
+      } else {
+        alert(`Gagal: ${data.error || "Gagal mencatat pembayaran"}`);
+      }
+    } catch {
+      alert("Koneksi gagal saat mencatat pembayaran.");
     }
   };
 
@@ -1532,6 +1605,21 @@ export default function LaundryApp() {
             {/* Order Manifest Card */}
             {trackedOrder && !isLoadingTrack && (
               <div className="p-6 rounded-xl bg-white border border-[#e2e2dc] shadow-xs space-y-6">
+                <div className="flex items-center justify-between border-b border-[#f0f0ec] pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-[#64748b]">MANIFEST PELACAKAN:</span>
+                    <strong className="font-mono text-base text-[#0f172a]">#{trackedOrder.order_no}</strong>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fetchTrackedOrder(trackedOrder.order_no)}
+                    className="btn-press px-3 py-1 rounded bg-[#f0f0ec] hover:bg-[#e2e2dc] text-xs font-mono flex items-center gap-1.5 text-[#0f172a]"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Perbarui Lacak</span>
+                  </button>
+                </div>
+
                 {/* Top Summary */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 rounded-lg bg-[#f8f8f6] border border-[#e6e6e2] text-xs font-mono">
                   <div>
@@ -1711,7 +1799,8 @@ export default function LaundryApp() {
 
         {/* VIEW 4: KASIR POS & THERMAL RECEIPT (Khusus Kasir / Admin) */}
         {view === "kasir" && (isKasir || isAdmin) && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             <div className="lg:col-span-7 space-y-6">
               <div className="space-y-1">
                 <span className="font-mono text-xs text-[#64748b] uppercase tracking-wider">TERMINAL KASIR OUTLET KEDATON</span>
@@ -1945,7 +2034,230 @@ export default function LaundryApp() {
               </div>
             </div>
           </div>
-        )}
+
+          {/* WORKSHOP QUEUE & PIPELINE CONTROL (Kasir Kedaton Operasional) */}
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-white border border-[#e2e2dc] shadow-xs">
+              <div>
+                <span className="font-mono text-xs text-[#64748b] uppercase tracking-wider block">KONTROL ALUR OPERASIONAL WORKSHOP</span>
+                <h3 className="text-lg font-semibold text-[#0f172a]">
+                  Antrean & Status Pengerjaan Cucian Kedaton
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadKasirData}
+                  className="btn-press px-3 py-1.5 rounded-lg bg-[#f0f0ec] hover:bg-[#e2e2dc] text-xs font-mono flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Refresh Antrean</span>
+                </button>
+              </div>
+            </div>
+
+            {kasirOrders.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#64748b] bg-white rounded-xl border border-[#e2e2dc]">
+                Belum ada pesanan aktif di antrean workshop saat ini.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {kasirOrders.map((ord) => {
+                  const isPaid = ord.payments && ord.payments.some((p) => p.status === "paid");
+                  const isWalkIn = ord.fulfillment_type === "drop_off";
+
+                  return (
+                    <div
+                      key={ord.id}
+                      className={`p-4 rounded-xl bg-white border transition-all space-y-3 ${
+                        kasirSelectedOrder?.id === ord.id
+                          ? "border-[#0f172a] shadow-xs ring-1 ring-[#0f172a]/20"
+                          : "border-[#e2e2dc] hover:border-[#cbd5e1]"
+                      }`}
+                    >
+                      {/* Header Row */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#f0f0ec] pb-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-sm text-[#0f172a]">#{ord.order_no}</span>
+                          <span
+                            className={`font-mono text-[10px] px-2 py-0.5 rounded uppercase font-semibold ${
+                              isWalkIn
+                                ? "bg-slate-100 text-slate-700 border border-slate-300"
+                                : "bg-amber-100 text-amber-800 border border-amber-300"
+                            }`}
+                          >
+                            {isWalkIn ? "🏬 Walk-in / Drop-off" : "📦 Antar-Jemput"}
+                          </span>
+                          <span
+                            className={`font-mono text-[10px] px-2 py-0.5 rounded uppercase font-bold ${
+                              ord.status === "completed"
+                                ? "bg-emerald-100 text-emerald-800"
+                                : ord.status === "ready"
+                                ? "bg-blue-100 text-blue-800"
+                                : ord.status === "washing" || ord.status === "ironing"
+                                ? "bg-purple-100 text-purple-800"
+                                : "bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            Status: {STATUS_LABELS[ord.status] || ord.status}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isPaid ? (
+                            <span className="font-mono text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>Lunas ({ord.payments?.[0]?.method.toUpperCase() || "CASH"})</span>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleCashPayment(ord.id, ord.total)}
+                              className="btn-press px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-600 text-white font-mono text-[11px] font-semibold flex items-center gap-1"
+                            >
+                              <span>💵 Terima Tunai Rp {ord.total.toLocaleString("id-ID")}</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Order Details */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-[#334155]">
+                        <div>
+                          <span className="text-[#94a3b8] uppercase text-[10px] block">PELANGGAN</span>
+                          <strong className="text-[#0f172a]">{ord.customer.name}</strong>
+                          <span className="text-[11px] text-[#64748b] block font-mono">{ord.customer.phone}</span>
+                        </div>
+
+                        <div>
+                          <span className="text-[#94a3b8] uppercase text-[10px] block">ITEM & BERAT</span>
+                          <span className="text-[#0f172a] font-semibold">
+                            {ord.items.map((i) => `${i.service.name} (${i.quantity} ${i.service.unit})`).join(", ")}
+                          </span>
+                          <span className="text-[11px] font-mono text-[#0f172a] block font-bold mt-0.5">
+                            Total: Rp {ord.total.toLocaleString("id-ID")}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[#94a3b8] uppercase text-[10px] block">CATATAN / WORKSHOP</span>
+                          <span className="text-[11px] text-[#475569] block">
+                            {ord.notes || "Tidak ada catatan khusus"}
+                          </span>
+                          <span className="text-[10px] text-[#94a3b8] font-mono block mt-0.5">
+                            {new Date(ord.created_at).toLocaleDateString("id-ID")} {new Date(ord.created_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WIB
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Pipeline Stage Buttons */}
+                      <div className="pt-2 border-t border-[#f0f0ec] flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[10px] text-[#64748b] uppercase mr-1">Proses Alur:</span>
+
+                          {ord.status === "pending" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(ord.id, "received", "Cucian diterima di kasir workshop Kedaton")}
+                              className="btn-press px-2.5 py-1 rounded bg-[#0f172a] text-white text-xs font-semibold"
+                            >
+                              📥 Terima di Outlet
+                            </button>
+                          )}
+
+                          {ord.status === "picked_up" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(ord.id, "received", "Cucian tiba dari kurir dan diterima di outlet")}
+                              className="btn-press px-2.5 py-1 rounded bg-blue-700 text-white text-xs font-semibold"
+                            >
+                              📥 Konfirmasi Tiba di Outlet
+                            </button>
+                          )}
+
+                          {ord.status === "received" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(ord.id, "washing", "Pencucian mesin dimulai oleh tim workshop")}
+                              className="btn-press px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
+                            >
+                              🧼 Mulai Cuci (Washing)
+                            </button>
+                          )}
+
+                          {ord.status === "washing" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(ord.id, "ironing", "Pencucian selesai, masuk proses setrika uap & QC")}
+                              className="btn-press px-2.5 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold"
+                            >
+                              💨 Mulai Setrika (Ironing)
+                            </button>
+                          )}
+
+                          {ord.status === "ironing" && (
+                            <button
+                              onClick={() => handleUpdateOrderStatus(ord.id, "ready", "Pakaian selesai disetrika, dipacking rapi & siap")}
+                              className="btn-press px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold"
+                            >
+                              ✨ Selesai & Siap (Ready)
+                            </button>
+                          )}
+
+                          {ord.status === "ready" && (
+                            <>
+                              {isWalkIn ? (
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(ord.id, "completed", "Pesanan diserahkan langsung ke pelanggan di outlet")}
+                                  className="btn-press px-2.5 py-1 rounded bg-emerald-800 text-white text-xs font-semibold"
+                                >
+                                  ✅ Serahkan ke Pelanggan (Selesai)
+                                </button>
+                              ) : (
+                                <span className="font-mono text-[11px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                  🚚 Tugas Antar Siap di Kurir
+                                </span>
+                              )}
+                            </>
+                          )}
+
+                          {ord.status === "delivering" && (
+                            <span className="font-mono text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                              🛵 Kurir sedang mengantar ke alamat
+                            </span>
+                          )}
+
+                          {ord.status === "completed" && (
+                            <span className="font-mono text-[11px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                              ✓ Pesanan Selesai
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => {
+                              setKasirSelectedOrder(ord);
+                              if (ord.items[0]) setKasirActualWeight(ord.items[0].quantity);
+                              window.scrollTo({ top: 0, behavior: "smooth" });
+                            }}
+                            className="btn-press px-2 py-1 rounded border border-[#cbd5e1] hover:bg-[#f0f0ec] text-[11px] font-mono"
+                          >
+                            ⚖ Timbang Ulang
+                          </button>
+                          <button
+                            onClick={() => {
+                              setKasirSelectedOrder(ord);
+                              window.scrollTo({ top: 300, behavior: "smooth" });
+                            }}
+                            className="btn-press px-2 py-1 rounded border border-[#cbd5e1] hover:bg-[#f0f0ec] text-[11px] font-mono"
+                          >
+                            🖨️ Struk
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
         {/* VIEW 5: OPERASIONAL ADMIN CONSOLE (Khusus Super Admin) */}
         {view === "admin" && isAdmin && (
@@ -2097,7 +2409,7 @@ export default function LaundryApp() {
               {courierTasks.map((task) => (
                 <div key={task.id} className="p-5 rounded-xl bg-white border border-[#e2e2dc] shadow-xs space-y-4">
                   <div className="flex items-center justify-between border-b border-[#e6e6e2] pb-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
                         className={`font-mono text-[10px] px-2 py-0.5 rounded uppercase font-bold ${
                           task.type === "pickup"
@@ -2107,6 +2419,19 @@ export default function LaundryApp() {
                       >
                         {task.type === "pickup" ? "📦 JEMPUT (PICKUP)" : "🚚 ANTAR (DELIVERY)"}
                       </span>
+                      {!task.courier_id ? (
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 font-bold">
+                          ⚠️ Terbuka (Belum Ada Kurir)
+                        </span>
+                      ) : task.courier_id === user?.id ? (
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold">
+                          ✓ Tugas Anda
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                          Kurir: {task.courier?.name || "Lain"}
+                        </span>
+                      )}
                     </div>
                     <span className="font-mono text-[11px] text-[#64748b] font-bold">
                       #{task.order.order_no}
@@ -2159,7 +2484,7 @@ export default function LaundryApp() {
                         className="btn-press flex-1 py-2 rounded-lg bg-[#0f172a] text-white text-xs font-semibold flex items-center justify-center gap-1.5"
                       >
                         <Navigation className="w-3.5 h-3.5" />
-                        <span>Mulai Menuju Lokasi</span>
+                        <span>{!task.courier_id ? "✋ Ambil & Mulai Tugas" : "Mulai Menuju Lokasi"}</span>
                       </button>
                     )}
 
