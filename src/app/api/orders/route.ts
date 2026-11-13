@@ -113,10 +113,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const authUser = await getAuthUser(req);
 
-    let customerId: number | null = authUser ? authUser.id : null;
+    let customerId: number | null = null;
 
-    // Support walk-in or guest checkout by phone & name
-    if (!customerId) {
+    if (authUser && authUser.role === "customer") {
+      customerId = authUser.id;
+    } else {
+      // Walk-in order created by kasir/admin, or guest checkout
       const { guest_name, guest_phone, guest_address } = body;
       if (!guest_name || !guest_phone) {
         return NextResponse.json(

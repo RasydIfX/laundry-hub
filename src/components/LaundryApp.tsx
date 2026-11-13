@@ -199,8 +199,8 @@ export default function LaundryApp() {
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
 
   // State Tracking Detail
-  const [activeOrderNo, setActiveOrderNo] = useState("LDR-20261109-002");
-  const [orderSearchInput, setOrderSearchInput] = useState("LDR-20261109-002");
+  const [activeOrderNo, setActiveOrderNo] = useState("");
+  const [orderSearchInput, setOrderSearchInput] = useState("");
   const [trackedOrder, setTrackedOrder] = useState<OrderDetail | null>(null);
   const [myOrdersList, setMyOrdersList] = useState<OrderDetail[]>([]);
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
@@ -316,7 +316,10 @@ export default function LaundryApp() {
 
   // 3. Load Customer Orders (if logged in as customer)
   const loadCustomerOrders = useCallback(async () => {
-    if (!token || user?.role !== "customer") return;
+    if (!token || user?.role !== "customer") {
+      setMyOrdersList([]);
+      return;
+    }
     try {
       const res = await fetch("/api/orders", {
         headers: { Authorization: `Bearer ${token}` },
@@ -325,22 +328,35 @@ export default function LaundryApp() {
         const data = await res.json();
         if (data.success && data.data) {
           setMyOrdersList(data.data);
-          if (data.data.length > 0 && !activeOrderNo) {
-            setActiveOrderNo(data.data[0].order_no);
-            setOrderSearchInput(data.data[0].order_no);
+          if (data.data.length > 0) {
+            // Check if currently tracked order is already in customer's own orders
+            const hasActiveOrder = data.data.some((o: OrderDetail) => o.order_no === activeOrderNo);
+            if (!hasActiveOrder) {
+              const latest = data.data[0].order_no;
+              setActiveOrderNo(latest);
+              setOrderSearchInput(latest);
+              fetchTrackedOrder(latest);
+            }
+          } else {
+            // This customer has NO orders
+            setActiveOrderNo("");
+            setOrderSearchInput("");
+            setTrackedOrder(null);
           }
         }
       }
     } catch (e) {
       console.error("Gagal memuat riwayat pesanan customer:", e);
     }
-  }, [token, user?.role, activeOrderNo]);
+  }, [token, user?.role, user?.id, activeOrderNo, fetchTrackedOrder]);
 
   useEffect(() => {
     if (user?.role === "customer") {
       loadCustomerOrders();
+    } else {
+      setMyOrdersList([]);
     }
-  }, [user?.role, loadCustomerOrders]);
+  }, [user?.role, user?.id, loadCustomerOrders]);
 
   // 4. Load Kasir Data
   const loadKasirData = useCallback(async () => {
@@ -436,6 +452,15 @@ export default function LaundryApp() {
 
   // One-Click Demo Role Switcher
   const handleQuickLogin = async (phone: string, roleName: string) => {
+    // Reset state before switching so data doesn't leak between accounts
+    setMyOrdersList([]);
+    setTrackedOrder(null);
+    setActiveOrderNo("");
+    setOrderSearchInput("");
+    setKasirOrders([]);
+    setCourierTasks([]);
+    setAdminReport(null);
+
     const res = await login(phone, "Password123!");
     if (res.ok) {
       alert(`✓ Berhasil login sebagai: ${roleName}`);
@@ -516,8 +541,13 @@ export default function LaundryApp() {
         }
       } else {
         // Guest Checkout
-        payload.guest_name = orderGuestName || "Pelanggan Online";
-        payload.guest_phone = orderGuestPhone || "081299887700";
+        if (!orderGuestName.trim() || !orderGuestPhone.trim()) {
+          alert("Harap isi nama dan nomor WhatsApp Anda untuk konfirmasi pesanan.");
+          setIsSubmittingOrder(false);
+          return;
+        }
+        payload.guest_name = orderGuestName.trim();
+        payload.guest_phone = orderGuestPhone.trim();
         if (orderFulfillment === "pickup_delivery") {
           payload.guest_address = orderGuestAddress;
         }
@@ -539,6 +569,10 @@ export default function LaundryApp() {
         );
         setActiveOrderNo(data.data.order_no);
         setOrderSearchInput(data.data.order_no);
+        fetchTrackedOrder(data.data.order_no);
+        if (user?.role === "customer") {
+          loadCustomerOrders();
+        }
         setView("tracking");
       } else {
         alert(`Gagal membuat pesanan: ${data.error || "Terjadi kesalahan"}`);
@@ -958,6 +992,13 @@ export default function LaundryApp() {
                 <button
                   onClick={() => {
                     logout();
+                    setMyOrdersList([]);
+                    setTrackedOrder(null);
+                    setActiveOrderNo("");
+                    setOrderSearchInput("");
+                    setKasirOrders([]);
+                    setCourierTasks([]);
+                    setAdminReport(null);
                     setView("landing");
                   }}
                   title="Logout"
@@ -1573,6 +1614,7 @@ export default function LaundryApp() {
                         onClick={() => {
                           setOrderSearchInput(myOrd.order_no);
                           setActiveOrderNo(myOrd.order_no);
+                          fetchTrackedOrder(myOrd.order_no);
                         }}
                         className={`px-2.5 py-1 rounded text-xs font-mono border transition-all ${
                           activeOrderNo === myOrd.order_no
@@ -1584,6 +1626,19 @@ export default function LaundryApp() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Jika customer login tapi belum ada pesanan */}
+              {user?.role === "customer" && myOrdersList.length === 0 && (
+                <div className="pt-2 border-t border-[#e6e6e2] text-xs text-[#64748b] flex items-center justify-between">
+                  <span>Anda belum memiliki riwayat pesanan laundry.</span>
+                  <button
+                    onClick={() => setView("order")}
+                    className="text-xs text-sky-600 hover:text-sky-700 font-semibold underline"
+                  >
+                    + Buat Pesanan Baru
+                  </button>
                 </div>
               )}
             </div>
@@ -1605,6 +1660,14 @@ export default function LaundryApp() {
             {/* Order Manifest Card */}
             {trackedOrder && !isLoadingTrack && (
               <div className="p-6 rounded-xl bg-white border border-[#e2e2dc] shadow-xs space-y-6">
+                {user?.role === "customer" && trackedOrder.customer.id !== user.id && (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                    <span>
+                      Perhatian: Anda sedang melacak nota publik <strong>#{trackedOrder.order_no}</strong> atas nama pelanggan lain (<strong>{trackedOrder.customer.name}</strong>).
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between border-b border-[#f0f0ec] pb-3">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-xs text-[#64748b]">MANIFEST PELACAKAN:</span>
@@ -1792,6 +1855,37 @@ export default function LaundryApp() {
                     )}
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Empty State when no order tracked */}
+            {!trackedOrder && !isLoadingTrack && !trackError && (
+              <div className="p-8 text-center bg-white rounded-xl border border-[#e2e2dc] shadow-xs space-y-3">
+                <div className="w-12 h-12 mx-auto rounded-full bg-[#f1f5f9] flex items-center justify-center text-[#64748b]">
+                  <Search className="w-6 h-6 text-[#94a3b8]" />
+                </div>
+                <h3 className="font-semibold text-sm text-[#0f172a]">
+                  {user?.role === "customer"
+                    ? myOrdersList.length === 0
+                      ? "Belum Ada Pesanan Aktif"
+                      : "Pilih Pesanan untuk Dilacak"
+                    : "Lacak Status Nota Laundry"}
+                </h3>
+                <p className="text-xs text-[#64748b] max-w-md mx-auto">
+                  {user?.role === "customer"
+                    ? myOrdersList.length === 0
+                      ? "Akun Anda saat ini belum memiliki pesanan aktif. Silakan buat pesanan baru melalui menu 'Pesan Laundry'!"
+                      : "Klik salah satu nomor nota Anda pada riwayat di atas untuk melihat detail progres pengerjaan."
+                    : "Ketik nomor nota pesanan pada kolom pencarian di atas lalu klik Lacak untuk melihat manifest pengerjaan."}
+                </p>
+                {user?.role === "customer" && myOrdersList.length === 0 && (
+                  <button
+                    onClick={() => setView("order")}
+                    className="btn-press px-4 py-2 rounded-lg bg-[#0f172a] text-white text-xs font-semibold inline-flex items-center gap-1.5"
+                  >
+                    <span>Pesan Laundry Sekarang</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -2540,6 +2634,13 @@ export default function LaundryApp() {
                 onSubmit={async (e) => {
                   e.preventDefault();
                   setAuthError(null);
+                  setMyOrdersList([]);
+                  setTrackedOrder(null);
+                  setActiveOrderNo("");
+                  setOrderSearchInput("");
+                  setKasirOrders([]);
+                  setCourierTasks([]);
+                  setAdminReport(null);
                   const res = await login(authIdentifier, authPassword);
                   if (res.ok) {
                     setShowAuthModal(false);
