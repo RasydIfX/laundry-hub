@@ -711,7 +711,7 @@ export default function LaundryApp() {
   };
 
   // Kurir Update Status
-  const handleUpdateDeliveryStatus = async (deliveryId: number, newStatus: string) => {
+  const handleUpdateDeliveryStatus = async (deliveryId: number, newStatus: string, orderNo?: string) => {
     try {
       const res = await fetch(`/api/deliveries/${deliveryId}/status`, {
         method: "PATCH",
@@ -723,10 +723,22 @@ export default function LaundryApp() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`✓ Status tugas pengantaran berhasil diubah ke: ${newStatus}`);
+        const readableStatus =
+          newStatus === "on_the_way"
+            ? "Mulai Menuju Lokasi"
+            : newStatus === "done"
+            ? "Selesai Serah Terima"
+            : newStatus;
+        alert(`✓ Status tugas kurir berhasil diperbarui: ${readableStatus}`);
         loadCourierTasks();
         loadKasirData();
-        if (activeOrderNo) fetchTrackedOrder(activeOrderNo);
+        if (orderNo) {
+          setActiveOrderNo(orderNo);
+          setOrderSearchInput(orderNo);
+          fetchTrackedOrder(orderNo);
+        } else if (activeOrderNo) {
+          fetchTrackedOrder(activeOrderNo);
+        }
       } else {
         alert(`Gagal: ${data.error}`);
       }
@@ -1799,37 +1811,59 @@ export default function LaundryApp() {
                   </div>
                 )}
 
-                {/* 8-Stage Progress Tracker */}
+                {/* Dynamic Stage Progress Tracker */}
                 <div className="space-y-3">
-                  <span className="font-mono text-xs uppercase tracking-wider text-[#64748b]">
-                    TAHAPAN OPERASIONAL LAUNDRY
-                  </span>
-                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-2 text-center text-xs">
-                    {ORDER_STEPS.map((s, idx) => {
-                      const currentIdx = ORDER_STEPS.findIndex((st) => st.id === trackedOrder.status);
-                      const isDone = idx <= currentIdx;
-                      const isCurrent = s.id === trackedOrder.status;
-
-                      return (
-                        <div key={idx} className="flex flex-col items-center gap-1.5">
-                          <div
-                            className={`w-7 h-7 rounded-md flex items-center justify-center font-mono text-xs font-semibold ${
-                              isCurrent
-                                ? "bg-[#0f172a] text-white ring-2 ring-[#0f172a]/20"
-                                : isDone
-                                ? "bg-[#e2e8f0] text-[#0f172a]"
-                                : "bg-[#f1f1ee] text-[#94a3b8]"
-                            }`}
-                          >
-                            {isDone ? "✓" : idx + 1}
-                          </div>
-                          <span className={`text-[11px] ${isCurrent ? "font-bold text-[#0f172a]" : "text-[#64748b]"}`}>
-                            {s.label}
-                          </span>
-                        </div>
-                      );
-                    })}
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-xs uppercase tracking-wider text-[#64748b]">
+                      TAHAPAN OPERASIONAL LAUNDRY
+                    </span>
+                    <span className="text-[11px] font-mono text-[#0f172a] font-semibold bg-[#f1f5f9] px-2 py-0.5 rounded">
+                      {trackedOrder.fulfillment_type === "pickup_delivery" ? "🛵 Antar-Jemput (8 Tahap)" : "🏪 Drop-off Outlet (6 Tahap)"}
+                    </span>
                   </div>
+                  {(() => {
+                    const activeSteps =
+                      trackedOrder.fulfillment_type === "drop_off"
+                        ? [
+                            { id: "pending", label: "Dipesan" },
+                            { id: "received", label: "Di Outlet" },
+                            { id: "washing", label: "Dicuci" },
+                            { id: "ironing", label: "Disetrika" },
+                            { id: "ready", label: "Siap Ambil" },
+                            { id: "completed", label: "Selesai" },
+                          ]
+                        : ORDER_STEPS;
+
+                    const currentIdx = activeSteps.findIndex((st) => st.id === trackedOrder.status);
+
+                    return (
+                      <div className={`grid gap-2 pt-2 text-center text-xs ${activeSteps.length === 6 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-4 sm:grid-cols-8"}`}>
+                        {activeSteps.map((s, idx) => {
+                          const isDone = currentIdx >= 0 && idx <= currentIdx;
+                          const isCurrent = s.id === trackedOrder.status;
+
+                          return (
+                            <div key={idx} className="flex flex-col items-center gap-1.5">
+                              <div
+                                className={`w-7 h-7 rounded-md flex items-center justify-center font-mono text-xs font-semibold ${
+                                  isCurrent
+                                    ? "bg-[#0f172a] text-white ring-2 ring-[#0f172a]/20"
+                                    : isDone
+                                    ? "bg-[#e2e8f0] text-[#0f172a]"
+                                    : "bg-[#f1f1ee] text-[#94a3b8]"
+                                }`}
+                              >
+                                {isDone ? "✓" : idx + 1}
+                              </div>
+                              <span className={`text-[11px] ${isCurrent ? "font-bold text-[#0f172a]" : "text-[#64748b]"}`}>
+                                {s.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Items Breakdown Table */}
@@ -2370,12 +2404,18 @@ export default function LaundryApp() {
                           <span className="font-mono text-[10px] text-[#64748b] uppercase mr-1">Proses Alur:</span>
 
                           {ord.status === "pending" && (
-                            <button
-                              onClick={() => handleUpdateOrderStatus(ord.id, "received", "Cucian diterima di kasir workshop Kedaton")}
-                              className="btn-press px-2.5 py-1 rounded bg-[#0f172a] text-white text-xs font-semibold"
-                            >
-                              📥 Terima di Outlet
-                            </button>
+                            isWalkIn ? (
+                              <button
+                                onClick={() => handleUpdateOrderStatus(ord.id, "received", "Cucian diterima di kasir workshop Kedaton")}
+                                className="btn-press px-2.5 py-1 rounded bg-[#0f172a] text-white text-xs font-semibold"
+                              >
+                                📥 Terima di Outlet
+                              </button>
+                            ) : (
+                              <span className="font-mono text-[11px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-semibold flex items-center gap-1">
+                                🛵 Menunggu Dijemput Kurir
+                              </span>
+                            )
                           )}
 
                           {ord.status === "picked_up" && (
@@ -2696,21 +2736,33 @@ export default function LaundryApp() {
                   <div className="pt-2 flex items-center gap-2">
                     {task.status === "scheduled" && (
                       <button
-                        onClick={() => handleUpdateDeliveryStatus(task.id, "on_the_way")}
+                        onClick={() => handleUpdateDeliveryStatus(task.id, "on_the_way", task.order.order_no)}
                         className="btn-press flex-1 py-2 rounded-lg bg-[#0f172a] text-white text-xs font-semibold flex items-center justify-center gap-1.5"
                       >
                         <Navigation className="w-3.5 h-3.5" />
-                        <span>{!task.courier_id ? "✋ Ambil & Mulai Tugas" : "Mulai Menuju Lokasi"}</span>
+                        <span>
+                          {!task.courier_id
+                            ? task.type === "pickup"
+                              ? "✋ Ambil & Berangkat Jemput"
+                              : "✋ Ambil & Berangkat Antar"
+                            : task.type === "pickup"
+                            ? "🛵 Berangkat Jemput Pakaian"
+                            : "🛵 Berangkat Antar Cucian"}
+                        </span>
                       </button>
                     )}
 
                     {task.status === "on_the_way" && (
                       <button
-                        onClick={() => handleUpdateDeliveryStatus(task.id, "done")}
+                        onClick={() => handleUpdateDeliveryStatus(task.id, "done", task.order.order_no)}
                         className="btn-press flex-1 py-2 rounded-lg bg-emerald-700 text-white text-xs font-semibold flex items-center justify-center gap-1.5"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Tandai Serah Terima Selesai</span>
+                        <span>
+                          {task.type === "pickup"
+                            ? "📦 Pakaian Selesai Dijemput (Bawa ke Outlet)"
+                            : "✅ Selesai Serah Terima ke Pelanggan"}
+                        </span>
                       </button>
                     )}
 

@@ -64,38 +64,46 @@ export async function PATCH(
       include: { order: true },
     });
 
-    // Automatically transition parent order status based on courier progress
+    // Automatically transition parent order status based on courier progress safely without reverting
     if (delivery.type === "pickup") {
       if (status === "on_the_way") {
-        await transitionOrderStatus({
-          orderId: delivery.order_id,
-          newStatus: "picked_up",
-          changedByUserId: user!.id,
-          note: `Kurir sedang menuju ke lokasi penjemputan. ${note || ""}`,
-        });
+        if (delivery.order.status === "pending") {
+          await transitionOrderStatus({
+            orderId: delivery.order_id,
+            newStatus: "picked_up",
+            changedByUserId: user!.id,
+            note: `Kurir (${user!.name}) sedang menuju ke lokasi penjemputan pakaian. ${note || ""}`,
+          });
+        }
       } else if (status === "done") {
-        await transitionOrderStatus({
-          orderId: delivery.order_id,
-          newStatus: "received",
-          changedByUserId: user!.id,
-          note: `Pakaian berhasil dijemput dan tiba di workshop outlet. ${note || ""}`,
-        });
+        if (delivery.order.status === "pending" || delivery.order.status === "picked_up") {
+          await transitionOrderStatus({
+            orderId: delivery.order_id,
+            newStatus: "received",
+            changedByUserId: user!.id,
+            note: `Pakaian berhasil dijemput oleh kurir dan diserahkan ke workshop outlet. ${note || ""}`,
+          });
+        }
       }
     } else if (delivery.type === "delivery") {
       if (status === "on_the_way") {
-        await transitionOrderStatus({
-          orderId: delivery.order_id,
-          newStatus: "delivering",
-          changedByUserId: user!.id,
-          note: `Kurir sedang mengantar cucian bersih ke alamat tujuan. ${note || ""}`,
-        });
+        if (delivery.order.status === "ready") {
+          await transitionOrderStatus({
+            orderId: delivery.order_id,
+            newStatus: "delivering",
+            changedByUserId: user!.id,
+            note: `Kurir (${user!.name}) sedang mengantar pakaian bersih ke alamat pelanggan. ${note || ""}`,
+          });
+        }
       } else if (status === "done") {
-        await transitionOrderStatus({
-          orderId: delivery.order_id,
-          newStatus: "completed",
-          changedByUserId: user!.id,
-          note: `Pakaian bersih telah diterima pelanggan. Pesanan selesai. ${note || ""}`,
-        });
+        if (delivery.order.status === "ready" || delivery.order.status === "delivering") {
+          await transitionOrderStatus({
+            orderId: delivery.order_id,
+            newStatus: "completed",
+            changedByUserId: user!.id,
+            note: `Pakaian bersih telah diterima pelanggan. Pesanan selesai. ${note || ""}`,
+          });
+        }
       }
     }
 
