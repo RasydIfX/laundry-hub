@@ -279,6 +279,7 @@ export async function transitionOrderStatus(params: {
       include: {
         items: { include: { service: true } },
         customer: true,
+        payments: true,
       },
     });
 
@@ -325,12 +326,17 @@ export async function transitionOrderStatus(params: {
   });
 
   // Trigger Notification to Customer
+  let notifResult = null;
   try {
     const trackingUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}?order=${order.order_no}`;
     const statusLabel = STATUS_LABELS[newStatus] || newStatus;
 
     let event = "status_changed";
     if (newStatus === "ready") event = "ready";
+    else if (newStatus === "completed") event = "completed";
+
+    const isPaid = updatedOrder.payments?.some((p) => p.status === "paid");
+    const serviceNames = updatedOrder.items?.map((i) => i.service.name).join(", ");
 
     const msg = formatOrderMessage(event, {
       customerName: updatedOrder.customer.name,
@@ -339,11 +345,15 @@ export async function transitionOrderStatus(params: {
       note: note || "",
       fulfillmentType: updatedOrder.fulfillment_type,
       trackingUrl,
+      total: updatedOrder.total,
+      isPaid,
+      services: serviceNames,
     });
 
-    await sendNotification({
+    notifResult = await sendNotification({
       userId: updatedOrder.customer_id,
       orderId: updatedOrder.id,
+      phone: updatedOrder.customer.phone,
       channel: "whatsapp",
       message: msg,
     });
@@ -351,7 +361,10 @@ export async function transitionOrderStatus(params: {
     console.error("Gagal mengirim notifikasi perubahan status:", err);
   }
 
-  return updatedOrder;
+  return {
+    ...updatedOrder,
+    whatsapp_notification: notifResult,
+  };
 }
 
 /**

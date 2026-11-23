@@ -31,6 +31,7 @@ import {
   Phone,
   Navigation,
   CheckCircle2,
+  MessageSquare,
 } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 import PaymentGatewayModal from "./PaymentGatewayModal";
@@ -753,11 +754,41 @@ export default function LaundryApp() {
         loadKasirData();
         if (isAdmin) loadAdminData();
         if (activeOrderNo) fetchTrackedOrder(activeOrderNo);
+
+        // Jika status ready (selesai cuci) atau completed, tampilkan konfirmasi notifikasi WhatsApp
+        if (newStatus === "ready" || newStatus === "completed") {
+          const waNotif = data.data?.whatsapp_notification;
+          const phone = waNotif?.phone || "pelanggan";
+          const label = STATUS_LABELS[newStatus] || newStatus;
+          const confirmOpen = confirm(
+            `✓ Status pesanan #${data.data?.order_no || orderId} berhasil diubah ke: "${label}"!\n\n📲 Notifikasi WhatsApp otomatis telah dikirim ke nomor pelanggan (+${phone}).\n\nApakah Anda ingin membuka chat WhatsApp sekarang?`
+          );
+          if (confirmOpen && waNotif?.wa_link) {
+            window.open(waNotif.wa_link, "_blank");
+          }
+        }
       } else {
         alert(`Gagal mengubah status: ${data.error || "Terjadi kesalahan"}`);
       }
     } catch {
       alert("Koneksi gagal saat memperbarui status pesanan.");
+    }
+  };
+
+  // Kirim WhatsApp ke Konsumen Manual
+  const handleOpenWhatsApp = async (orderId: number) => {
+    try {
+      const res = await fetch(`/api/orders/${orderId}/whatsapp`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && data.data?.wa_link) {
+        window.open(data.data.wa_link, "_blank");
+      } else {
+        alert(`Gagal membuka WhatsApp: ${data.error || "Terjadi kesalahan"}`);
+      }
+    } catch {
+      alert("Koneksi gagal saat menghubungi gateway WhatsApp.");
     }
   };
 
@@ -1828,6 +1859,28 @@ export default function LaundryApp() {
                   </div>
                 </div>
 
+                {/* WhatsApp Notification Integration Badge */}
+                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-emerald-950 block">Notifikasi WhatsApp Konsumen</span>
+                      <span className="text-[11px] text-emerald-800">
+                        Pembaruan status otomatis dikirimkan ke nomor WhatsApp <strong>{trackedOrder.customer.phone}</strong>.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenWhatsApp(trackedOrder.id)}
+                    className="btn-press px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shrink-0 shadow-xs"
+                  >
+                    <span>💬 Hubungi via WA</span>
+                  </button>
+                </div>
+
                 {/* Audit Trail Logs */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-[#e6e6e2]">
                   <div className="space-y-3">
@@ -2245,7 +2298,15 @@ export default function LaundryApp() {
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleOpenWhatsApp(ord.id)}
+                            title="Kirim Pesan WhatsApp Langsung ke Pelanggan"
+                            className="btn-press px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-mono text-[11px] font-semibold flex items-center gap-1 shadow-xs"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </button>
                           {isPaid ? (
                             <span className="font-mono text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
                               <CheckCircle2 className="w-3.5 h-3.5" />
