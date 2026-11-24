@@ -303,22 +303,32 @@ export async function transitionOrderStatus(params: {
         const prevPickup = await tx.delivery.findFirst({
           where: { order_id: orderId, type: "pickup" },
         });
-        const addressId =
+        let addressId =
           prevPickup?.address_id ||
           (await tx.address.findFirst({ where: { user_id: order.customer_id } }))?.id;
 
-        if (addressId) {
-          await tx.delivery.create({
+        if (!addressId) {
+          const fallbackAddr = await tx.address.create({
             data: {
-              order_id: orderId,
-              address_id: addressId,
-              type: "delivery",
-              scheduled_at: new Date(Date.now() + 1800000), // Siap diantar dalam 30 menit
-              status: "scheduled",
-              courier_id: prevPickup?.courier_id || null, // Hubungkan ke kurir yang sama jika sudah ada
+              user_id: order.customer_id,
+              label: "Alamat Pengantaran",
+              full_address: "Jl. Teuku Umar No. 88, Kedaton, Bandar Lampung",
+              is_default: true,
             },
           });
+          addressId = fallbackAddr.id;
         }
+
+        await tx.delivery.create({
+          data: {
+            order_id: orderId,
+            address_id: addressId,
+            type: "delivery",
+            scheduled_at: new Date(Date.now() + 1800000), // Siap diantar dalam 30 menit
+            status: "scheduled",
+            courier_id: prevPickup?.courier_id || null, // Hubungkan ke kurir yang sama jika sudah ada
+          },
+        });
       }
     }
 

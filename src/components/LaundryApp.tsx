@@ -2602,17 +2602,30 @@ export default function LaundryApp() {
                             value={ord.status}
                             onChange={async (e) => {
                               const newSt = e.target.value;
-                              await fetch(`/api/orders/${ord.id}`, {
-                                method: "PATCH",
-                                headers: {
-                                  "Content-Type": "application/json",
-                                  Authorization: `Bearer ${token}`,
-                                },
-                                body: JSON.stringify({ status: newSt, note: `Diubah oleh Admin melalui konsol` }),
-                              });
+                              if (newSt === ord.status) return;
+                              if (!window.confirm(`Ubah status pesanan #${ord.order_no} dari "${ord.status}" menjadi "${newSt}"?`)) {
+                                return;
+                              }
+                              try {
+                                const res = await fetch(`/api/orders/${ord.id}`, {
+                                  method: "PATCH",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${token}`,
+                                  },
+                                  body: JSON.stringify({ status: newSt, note: `Diubah oleh Admin melalui konsol` }),
+                                });
+                                const resJson = await res.json();
+                                if (!resJson.success) {
+                                  alert(`Gagal: ${resJson.error || "Gagal memperbarui status"}`);
+                                }
+                              } catch (err) {
+                                console.error(err);
+                                alert("Terjadi kesalahan jaringan saat memperbarui status.");
+                              }
                               loadAdminData();
                             }}
-                            className="p-1 rounded bg-[#f8f8f6] border border-[#cbd5e1] font-mono text-xs"
+                            className="p-1 rounded bg-[#f8f8f6] border border-[#cbd5e1] font-mono text-xs cursor-pointer hover:border-[#0f172a]"
                           >
                             {ORDER_STEPS.map((st) => (
                               <option key={st.id} value={st.id}>
