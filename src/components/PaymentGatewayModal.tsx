@@ -49,6 +49,22 @@ interface ChargeData {
   instructions: { title: string; steps: string[] }[];
 }
 
+declare global {
+  interface Window {
+    snap?: {
+      pay: (
+        token: string,
+        options: {
+          onSuccess?: (result: unknown) => void;
+          onPending?: (result: unknown) => void;
+          onError?: (result: unknown) => void;
+          onClose?: () => void;
+        }
+      ) => void;
+    };
+  }
+}
+
 export default function PaymentGatewayModal({
   isOpen,
   onClose,
@@ -66,6 +82,8 @@ export default function PaymentGatewayModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSuccessPaid, setIsSuccessPaid] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number>(15 * 60); // 15 mins in seconds
+  const [isLoadingSnap, setIsLoadingSnap] = useState(false);
+  const [midtransNotice, setMidtransNotice] = useState<string | null>(null);
 
   // Initialize charge when tab/bank/wallet changes
   const initCharge = useCallback(
@@ -166,6 +184,90 @@ export default function PaymentGatewayModal({
     }
   };
 
+  const loadMidtransScript = (clientKey: string, isSandbox: boolean): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof window !== "undefined" && window.snap) {
+        resolve(true);
+        return;
+      }
+      const existingScript = document.getElementById("midtrans-snap-script");
+      if (existingScript) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.id = "midtrans-snap-script";
+      script.src = isSandbox
+        ? "https://app.sandbox.midtrans.com/snap/snap.js"
+        : "https://app.midtrans.com/snap/snap.js";
+      script.setAttribute("data-client-key", clientKey);
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
+  const handlePayWithMidtrans = async () => {
+    if (!order?.id) return;
+    setIsLoadingSnap(true);
+    setMidtransNotice(null);
+    setErrorMsg(null);
+    try {
+      const res = await fetch("/api/payments/snap", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ order_id: order.id }),
+      });
+
+      const resData = await res.json();
+
+      if (!resData.success) {
+        if (resData.error === "MIDTRANS_NOT_CONFIGURED") {
+          setMidtransNotice(
+            "Kunci Midtrans belum aktif di .env. Anda dapat mengisi MIDTRANS_SERVER_KEY atau memakai Simulator QRIS / VA langsung di bawah ini!"
+          );
+        } else {
+          setErrorMsg(resData.error || "Gagal membuka popup Midtrans.");
+        }
+        setIsLoadingSnap(false);
+        return;
+      }
+
+      const { token: snapToken, client_key, is_sandbox, redirect_url } = resData.data;
+
+      const scriptLoaded = await loadMidtransScript(client_key, is_sandbox);
+
+      if (scriptLoaded && window.snap) {
+        window.snap.pay(snapToken, {
+          onSuccess: () => {
+            setIsSuccessPaid(true);
+            setTimeout(() => {
+              onPaymentSuccess();
+            }, 1200);
+          },
+          onPending: () => {
+            alert("Pembayaran berstatus pending. Silakan selesaikan pembayaran sesuai petunjuk di layar.");
+          },
+          onError: () => {
+            setErrorMsg("Pembayaran Midtrans gagal atau dibatalkan.");
+          },
+          onClose: () => {
+            // Popup closed by customer
+          },
+        });
+      } else if (redirect_url) {
+        window.open(redirect_url, "_blank");
+      }
+    } catch {
+      setErrorMsg("Koneksi ke server gateway Midtrans terputus.");
+    } finally {
+      setIsLoadingSnap(false);
+    }
+  };
+
   if (!isOpen || !order) return null;
 
   return (
@@ -218,6 +320,56 @@ export default function PaymentGatewayModal({
             <span className="font-semibold text-emerald-700">Terverifikasi Otomatis</span>
           </div>
         </div>
+
+        {/* Midtrans Snap Official CTA */}
+        {!isSuccessPaid && (
+          <div className="bg-gradient-to-r from-[#0f172a] via-[#1e293b] to-[#0f172a] p-3 sm:px-5 flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-[#334155]">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-400 font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                ⚡
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-xs text-white">Midtrans Snap Gateway</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-400/20 text-sky-300 font-mono border border-sky-400/30">
+                    Resmi Pop-up
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  Bayar via QRIS GoPay, BCA, Mandiri, BRI, BNI & Indomaret dalam satu pop-up
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handlePayWithMidtrans}
+              disabled={isLoadingSnap}
+              className="btn-press w-full sm:w-auto px-4 py-2 rounded-xl bg-gradient-to-r from-sky-400 to-blue-500 hover:from-sky-300 hover:to-blue-400 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shrink-0 cursor-pointer"
+            >
+              {isLoadingSnap ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Menghubungkan Midtrans...</span>
+                </>
+              ) : (
+                <>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>Buka Pop-up Midtrans</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {midtransNotice && (
+          <div className="mx-4 mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
+            <Sparkles className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <strong className="block font-semibold">Mode Simulasi Mandiri Aktif</strong>
+              <span>{midtransNotice}</span>
+            </div>
+          </div>
+        )}
 
         {/* Main Body */}
         {isSuccessPaid ? (
