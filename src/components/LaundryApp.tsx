@@ -362,7 +362,11 @@ export default function LaundryApp() {
     } else {
       setMyOrdersList([]);
     }
-  }, [user?.role, user?.id, loadCustomerOrders]);
+    if (user) {
+      if (user.name) setOrderGuestName(user.name);
+      if (user.phone) setOrderGuestPhone(user.phone);
+    }
+  }, [user?.role, user?.id, user?.name, user?.phone, loadCustomerOrders, user]);
 
   // 4. Load Kasir Data
   const loadKasirData = useCallback(async () => {
@@ -1485,6 +1489,20 @@ export default function LaundryApp() {
 
                 {orderFulfillment === "pickup_delivery" && (
                   <div className="space-y-3 pt-2">
+                    {user && (
+                      <div className="p-2.5 bg-blue-50/80 border border-blue-200 rounded-lg flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          <span className="text-[11px] text-[#334155]">
+                            Pemesanan terhubung ke akun: <strong className="text-[#0f172a]">{user.name}</strong> ({user.phone})
+                          </span>
+                        </div>
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono font-bold uppercase">
+                          {user.role}
+                        </span>
+                      </div>
+                    )}
+
                     {user && addresses.length > 0 ? (
                       <div>
                         <label className="text-[11px] text-[#64748b] mb-1 block">Pilih Alamat Tersimpan:</label>
@@ -2833,6 +2851,17 @@ export default function LaundryApp() {
                   const res = await login(authIdentifier, authPassword);
                   if (res.ok) {
                     setShowAuthModal(false);
+                    setAuthPassword("");
+                    try {
+                      const savedUserStr = localStorage.getItem("lh_user");
+                      if (savedUserStr) {
+                        const u = JSON.parse(savedUserStr);
+                        if (u.role === "admin") setView("admin");
+                        else if (u.role === "kasir") setView("kasir");
+                        else if (u.role === "kurir") setView("kurir");
+                        else setView("order");
+                      }
+                    } catch {}
                   } else {
                     setAuthError(res.error || "Login gagal.");
                   }
@@ -2892,6 +2921,13 @@ export default function LaundryApp() {
                   const res = await register(authName, authPhone, authEmail, authPassword);
                   if (res.ok) {
                     setShowAuthModal(false);
+                    const newName = authName;
+                    setAuthName("");
+                    setAuthPhone("");
+                    setAuthEmail("");
+                    setAuthPassword("");
+                    setView("order");
+                    alert(`✓ Pendaftaran berhasil! Anda otomatis masuk sebagai ${newName}.`);
                   } else {
                     setAuthError(res.error || "Registrasi gagal.");
                   }

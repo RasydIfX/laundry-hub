@@ -74,15 +74,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.data) {
-          setUser({
+          const profileUser: AuthUser = {
             id: data.data.id,
             name: data.data.name,
             phone: data.data.phone,
             email: data.data.email,
             role: data.data.role,
-          });
+          };
+          setUser(profileUser);
+          localStorage.setItem("lh_user", JSON.stringify(profileUser));
           setAddresses(data.data.addresses || []);
         }
+      } else if (res.status === 401) {
+        // Token expired or invalid
+        setUser(null);
+        setToken(null);
+        setAddresses([]);
+        localStorage.removeItem("lh_token");
+        localStorage.removeItem("lh_user");
       }
     } catch (err) {
       console.error("Refresh profile error:", err);
@@ -91,11 +100,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem("lh_token");
-    if (saved) {
-      setToken(saved);
+    try {
+      const savedToken = localStorage.getItem("lh_token");
+      const savedUser = localStorage.getItem("lh_user");
+      if (savedToken) {
+        setToken(savedToken);
+      }
+      if (savedUser) {
+        setUser(JSON.parse(savedUser));
+      }
+    } catch (e) {
+      console.error("Auth init error:", e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // Fetch profile when token changes
@@ -117,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(data.data.token);
         setUser(data.data.user);
         localStorage.setItem("lh_token", data.data.token);
+        localStorage.setItem("lh_user", JSON.stringify(data.data.user));
         return { ok: true };
       }
       return { ok: false, error: data.error || "Login gagal." };
@@ -137,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(data.data.token);
         setUser(data.data.user);
         localStorage.setItem("lh_token", data.data.token);
+        localStorage.setItem("lh_user", JSON.stringify(data.data.user));
         return { ok: true };
       }
       return { ok: false, error: data.error || "Registrasi gagal." };
@@ -150,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setAddresses([]);
     localStorage.removeItem("lh_token");
+    localStorage.removeItem("lh_user");
   };
 
   return (

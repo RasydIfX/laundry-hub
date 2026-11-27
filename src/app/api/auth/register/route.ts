@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
       role: user.role,
     });
 
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         success: true,
         message: "Registrasi berhasil.",
@@ -77,6 +77,15 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 }
     );
+
+    res.cookies.set("token", token, {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 7 * 24 * 60 * 60,
+      path: "/",
+    });
+
+    return res;
   } catch (error) {
     console.error("Register Error:", error);
     return NextResponse.json(
