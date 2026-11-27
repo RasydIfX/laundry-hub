@@ -1893,27 +1893,29 @@ export default function LaundryApp() {
                   </div>
                 </div>
 
-                {/* WhatsApp Notification Integration Badge */}
-                <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                      <MessageSquare className="w-4 h-4" />
+                {/* WhatsApp Notification Integration Badge (Hanya untuk staf: Kasir, Kurir, Admin untuk kontak pelanggan) */}
+                {(isAdmin || isKasir || isKurir) && (
+                  <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <MessageSquare className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="font-bold text-emerald-950 block">Notifikasi WhatsApp Konsumen</span>
+                        <span className="text-[11px] text-emerald-800">
+                          Pembaruan status otomatis dikirimkan ke nomor WhatsApp <strong>{trackedOrder.customer.phone}</strong>.
+                        </span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="font-bold text-emerald-950 block">Notifikasi WhatsApp Konsumen</span>
-                      <span className="text-[11px] text-emerald-800">
-                        Pembaruan status otomatis dikirimkan ke nomor WhatsApp <strong>{trackedOrder.customer.phone}</strong>.
-                      </span>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenWhatsApp(trackedOrder.id)}
+                      className="btn-press px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shrink-0 shadow-xs"
+                    >
+                      <span>💬 Hubungi via WA</span>
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenWhatsApp(trackedOrder.id)}
-                    className="btn-press px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shrink-0 shadow-xs"
-                  >
-                    <span>💬 Hubungi via WA</span>
-                  </button>
-                </div>
+                )}
 
                 {/* Audit Trail Logs */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-[#e6e6e2]">
